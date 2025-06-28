@@ -4,94 +4,127 @@
 <title>Secretos Vault</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{font-family:sans-serif;margin:2rem;max-width:60rem}
-#vault,#unlock{margin-top:2rem}
-table{width:100%;border-collapse:collapse;margin-top:.8rem}
-td,th{border-bottom:1px solid #ddd;padding:.4rem}
-input[type=text],input[type=password]{padding:.4rem;width:100%}
-button{padding:.4rem .8rem;margin:.3rem}
+:root{--gap:.8rem}body{font-family:sans-serif;margin:2rem;max-width:60rem}
+input,button{padding:.4rem .6rem;font-size:1rem}button{cursor:pointer}
+table{width:100%;border-collapse:collapse;margin-top:var(--gap)}
+td,th{border-bottom:1px solid #ddd;padding:.4rem;text-align:left}
+#status{color:#c00;margin-top:var(--gap)}
 .hidden{display:none}
 </style>
 
 <h1>Secretos Vault</h1>
 
 <section id="unlock">
-<label>Pass-phrase<br><input id="pw" type="password"></label><br>
-<label><input id="remember"> remember in localStorage</label><br>
-<button id="go">Unlock</button>
-<p id="bad" class="hidden" style="color:#c00">Wrong pass-phrase</p>
+  <label>Pass-phrase<br><input id="pw" type="password" autocomplete="current-password"></label><br>
+  <label><input id="remember"> remember in localStorage</label><br>
+  <button id="btn-unlock">Unlock</button>
+  <p id="status" class="hidden"></p>
 </section>
 
 <section id="vault" class="hidden">
-<input id="filter" placeholder="filter…">
-<button id="add">＋ Add</button>
-<table><thead><tr><th>Key</th><th>Value</th></tr></thead><tbody id="list"></tbody></table>
+  <div>
+    <input id="filter" placeholder="filter…" style="width:60%">
+    <button id="btn-add">＋ Add</button>
+    <button id="btn-logout" style="float:right">🔒 Lock</button>
+  </div>
+  <table><thead><tr><th>Key</th><th>Value</th><th></th></tr></thead><tbody id="list"></tbody></table>
 </section>
 
 <script>
-const $=id=>document.getElementById(id)
-const b64=ab=>btoa(String.fromCharCode(...new Uint8Array(ab)))
-const ab=str=>Uint8Array.from(atob(str),c=>c.charCodeAt()).buffer
+/* ---------- helpers ---------- */
+const $ = id => document.getElementById(id)
+const b64 = ab => btoa(String.fromCharCode(...new Uint8Array(ab)))
+const ab  = str=> Uint8Array.from(atob(str), c=>c.charCodeAt()).buffer
+const apiV = 'application/vnd.github+json'
+const h = k => document.createElement(k)
 
-async function kdf(pass,salt){
-  const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',0,['deriveKey'])
-  return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:250000,hash:'SHA-256'},
-    base,{name:'AES-GCM',length:256},0,['encrypt','decrypt'])
+/* ---------- PBKDF2 + AES-GCM ---------- */
+async function deriveKey(pass,salt,iters=250_000){
+  const base = await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey'])
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:iters,hash:'SHA-256'},{...base},{name:'AES-GCM',length:256},false,['encrypt','decrypt'])
 }
-async function enc(obj,pass){
-  const iv=crypto.getRandomValues(new Uint8Array(12))
-  const salt=crypto.getRandomValues(new Uint8Array(16))
-  const key=await kdf(pass,salt)
-  const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(JSON.stringify(obj)))
+async function encryptJSON(obj,pass){
+  const iv   = crypto.getRandomValues(new Uint8Array(12))
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const key  = await deriveKey(pass,salt)
+  const ct   = await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(JSON.stringify(obj)))
   return {iv:b64(iv),salt:b64(salt),ct:b64(ct)}
 }
-async function dec(blob,pass){
-  const key=await kdf(pass,ab(blob.salt))
-  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:ab(blob.iv)},key,ab(blob.ct))
+async function decryptJSON(blob,pass){
+  const key=await deriveKey(pass,ab(blob.salt))
+  const pt =await crypto.subtle.decrypt({name:'AES-GCM',iv:ab(blob.iv)},key,ab(blob.ct))
   return JSON.parse(new TextDecoder().decode(pt))
 }
-function gh(url,tok,opt={}){return fetch(url,{...opt,headers:{'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}})}
 
-let pass,token,user,sha='',entries=[]
+/* ---------- GitHub fetch wrapper ---------- */
+function gh(url,token,opt={}){return fetch(url,{...opt,headers:{'Authorization':'Bearer '+token,'Accept':apiV,'X-GitHub-Api-Version':'2022-11-28'}})}
 
-$('go').onclick=async()=>{
-  pass=$('pw').value
-  if($('remember').checked) localStorage.setItem('secretos-pass',pass)
-  try{
-    const cfg=await fetch('./config.enc').then(r=>r.json())
-    token=await dec(cfg,pass).token
-  }catch(e){$('bad').classList.remove('hidden');return}
-  try{
-    user=await gh('https://api.github.com/user',token).then(r=>r.json()).then(j=>j.login)
-    const r=await gh(`https://api.github.com/repos/${user}/vault/contents/vault.json?ref=main`,token).then(r=>r.json())
-    sha=r.sha;entries=await dec(JSON.parse(atob(r.content)),pass)
-  }catch{entries=[]}
-  $('unlock').classList.add('hidden');$('vault').classList.remove('hidden');render()
-}
+/* ---------- state ---------- */
+let pass, token, user, sha='', entries=[]
+const CONFIG_URL = './config.enc'
+const VAULT_PATH = 'vault.json'
+const VAULT_BRANCH = 'main'
 
-const list=$('list')
+/* ---------- UI logic ---------- */
+function msg(text){const s=$('status');s.textContent=text;s.classList.remove('hidden')}
+function clearMsg(){$('status').classList.add('hidden')}
 function render(){
-  const q=$('filter').value.toLowerCase();list.innerHTML=''
+  const q=$('filter').value.toLowerCase()
+  const tbody=$('list');tbody.innerHTML=''
   entries.filter(o=>o.k.toLowerCase().includes(q)||o.v.toLowerCase().includes(q))
-    .forEach((o,i)=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${o.k}</td><td>${o.v}</td>`;tr.onclick=()=>edit(i);list.append(tr)})
+         .forEach((o,i)=>{
+           const tr=h('tr')
+           tr.innerHTML=`<td>${o.k}</td><td>${o.v}</td><td><button data-idx="${i}">✖</button></td>`
+           tbody.append(tr)
+         })
 }
 $('filter').oninput=render
-$('add').onclick=()=>edit(-1)
-
-function edit(i){
-  const cur=i>=0?entries[i]:{k:'',v:''}
-  const k=prompt('Key',cur.k);if(!k)return
-  const v=prompt('Value',cur.v);if(v===null)return
-  i>=0?entries[i]={k,v}:entries.push({k,v});save()
+$('list').onclick=e=>{
+  if(e.target.tagName!=='BUTTON') return
+  const i=+e.target.dataset.idx
+  if(confirm(`Delete "${entries[i].k}"?`)){entries.splice(i,1);save()}
 }
+$('btn-add').onclick=()=>{
+  const k=prompt('Key');if(!k)return
+  const v=prompt('Value');if(v===null)return
+  entries.push({k,v});save()
+}
+$('btn-logout').onclick=()=>location.reload()
 
+/* ---------- save to GitHub ---------- */
 async function save(){
-  const encBlob=await enc(entries,pass)
-  const body={message:'update',content:btoa(JSON.stringify(encBlob)),branch:'main'}
-  if(sha) body.sha=sha
-  const res=await gh(`https://api.github.com/repos/${user}/vault/contents/vault.json`,token,{method:'PUT',body:JSON.stringify(body)}).then(r=>r.json())
-  sha=res.content.sha;render();alert('Saved')
+  try{
+    const blob=await encryptJSON(entries,pass)
+    const body={message:'update vault',content:btoa(JSON.stringify(blob)),branch:VAULT_BRANCH}
+    if(sha) body.sha=sha
+    const res=await gh(`https://api.github.com/repos/${user}/vault/contents/${VAULT_PATH}`,token,{method:'PUT',body:JSON.stringify(body)})
+    if(!res.ok) throw new Error(await res.text())
+    sha =(await res.json()).content.sha
+    render();alert('Saved')
+  }catch(err){alert('Save failed');console.error(err)}
 }
 
+/* ---------- unlock flow ---------- */
+$('btn-unlock').onclick=unlock
 if(localStorage.getItem('secretos-pass')){$('pw').value=localStorage.getItem('secretos-pass')}
+
+async function unlock(){
+  clearMsg();pass=$('pw').value.trim()
+  if(!pass){msg('Enter pass-phrase');return}
+  try{
+    const cfg=await (await fetch(CONFIG_URL)).json()
+    token=(await decryptJSON(cfg,pass)).token
+  }catch{msg('Wrong pass-phrase');return}
+
+  if($('remember').checked) localStorage.setItem('secretos-pass',pass)
+  try{
+    user=await gh('https://api.github.com/user',token).then(r=>r.json()).then(j=>j.login)
+    const r=await gh(`https://api.github.com/repos/${user}/vault/contents/${VAULT_PATH}?ref=${VAULT_BRANCH}`,token)
+    if(r.ok){
+      const json=await r.json();sha=json.sha;entries=await decryptJSON(JSON.parse(atob(json.content)),pass)
+    }else if(r.status===404){entries=[];sha=''}               // first run
+    else throw new Error(await r.text())
+    $('unlock').classList.add('hidden');$('vault').classList.remove('hidden');render()
+  }catch(err){msg('GitHub API error');console.error(err)}
+}
 </script>
