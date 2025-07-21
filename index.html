@@ -75,6 +75,20 @@ const $=id=>document.getElementById(id),API='application/vnd.github+json',
 b64=ab=>btoa(String.fromCharCode(...new Uint8Array(ab))),
 ab=s=>Uint8Array.from(atob(s),c=>c.charCodeAt()).buffer
 
+/* ---------- GitHub username & config URL ---------- */
+function getUser(){
+  if(location.hostname.endsWith('.github.io')){
+    return location.hostname.split('.')[0];           // alice.github.io → alice
+  }
+  const cached = localStorage.getItem('secretos-user');
+  if(cached) return cached;
+  const u = prompt('GitHub username that hosts the secretos repo?');
+  if(u) localStorage.setItem('secretos-user', u);
+  return u || '';                                     // empty string → setup will fail until provided
+}
+const GH_USER     = getUser();
+const CONFIG_URL  = `https://raw.githubusercontent.com/${GH_USER}/secretos/main/config.enc`;
+
 let pass,token,user,sha='',entries=[]
 const toast=msg=>{const t=$('toast');t.textContent=msg;t.style.opacity=1;setTimeout(()=>t.style.opacity=0,1200)}
 
@@ -112,7 +126,7 @@ if(autoPass)unlock(true)
 async function unlock(auto){
   pass=auto?autoPass:$('pw').value.trim()
   if(!pass)return
-  try{token=(await decrypt(await fetch('./config.enc').then(r=>r.json()))).token}catch{ if(!auto)err('umsg','Wrong pass‑phrase');return}
+  try{token=(await decrypt(await fetch(CONFIG_URL).then(r=>r.json()))).token}catch{ if(!auto)err('umsg','Wrong pass‑phrase');return}
   if($('remember').checked) localStorage.setItem('secretos-pass',pass); 
   else localStorage.removeItem('secretos-pass');  user=await gh('https://api.github.com/user').then(r=>r.json()).then(j=>j.login)
   const r = await gh(`https://api.github.com/repos/${user}/vault/contents/vault.json?ref=main`);
@@ -154,7 +168,7 @@ const stored = localStorage.getItem('secretos-pass');
 if (stored) { $('remember').checked = true; }     // pre‑tick box
 
 (async () => {
-  const cfg = await fetch('./config.enc').then(r => r.ok).catch(() => false);
+  const cfg = await fetch(CONFIG_URL).then(r => r.ok).catch(() => false);
   if (cfg) {
     $('unlock').classList.remove('hidden');
     if (stored) unlock(true);                    // auto‑unlock only if remembered
