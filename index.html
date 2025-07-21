@@ -115,13 +115,28 @@ async function unlock(auto){
   try{token=(await decrypt(await fetch('./config.enc').then(r=>r.json()))).token}catch{ if(!auto)err('umsg','Wrong pass‑phrase');return}
   if($('remember').checked) localStorage.setItem('secretos-pass',pass); 
   else localStorage.removeItem('secretos-pass');  user=await gh('https://api.github.com/user').then(r=>r.json()).then(j=>j.login)
-  const r=await gh(`https://api.github.com/repos/${user}/vault/contents/vault.json?ref=main`)
-  if(r.ok){
-    try{const j=await r.json();sha=j.sha;entries=await decrypt(JSON.parse(atob(j.content)))}catch{
-      const old=prompt('Vault uses an older pass‑phrase.\nEnter old pass‑phrase to migrate:');if(!old)return
-      try{entries=await (async()=>{const k=await key(old,ab((await r.json()).content.match(/"salt":"([^"]+)"/)[1]));return decrypt(JSON.parse(atob((await r.json()).content)))} )(); sha=(await r.json()).sha;save();toast('Vault migrated')}catch{err('umsg','Migration failed');return}
+  const r = await gh(`https://api.github.com/repos/${user}/vault/contents/vault.json?ref=main`);
+  if (r.ok) {
+    const j      = await r.json();
+    const blob   = JSON.parse(atob(j.content));   // parsed once
+    sha          = j.sha;
+    const newPass = pass;                         // keep the intended new pass‑phrase
+    try {
+      entries = await decrypt(blob);              // try with new pass‑phrase
+    } catch {
+      const old = prompt('Vault is still encrypted with an older pass‑phrase.\nPlease enter the OLD pass‑phrase to migrate:');
+      if (!old) { err('umsg','Migration cancelled'); return; }
+      try {                                       // decrypt with old pass‑phrase
+        pass    = old;
+        entries = await decrypt(blob);
+        pass    = newPass;                        // switch back to new pass‑phrase
+        await save();                             // auto‑re‑encrypt & push
+        toast('Vault migrated');                  // confirmation
+      } catch { err('umsg','Migration failed'); return; }
     }
-  }else entries=[]
+  } else {
+    entries = [];                                 // first run – empty vault
+  }
   $('setup').classList.add('hidden');$('unlock').classList.add('hidden');$('app').classList.remove('hidden');render()
 }
 
