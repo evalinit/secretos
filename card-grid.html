@@ -1,0 +1,57 @@
+<!-- index-cards.html -->
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Secretos – Card Grid</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font-family:system-ui,Arial;margin:1.4rem}h1{margin-bottom:1rem}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(15rem,1fr));gap:1rem}
+.card{padding:1rem;border:1px solid #ccc;border-radius:8px;position:relative;background:#fafafa}
+.card h2{margin:0 0 .4rem;font-size:1.1rem}
+.card p{margin:0;font-family:ui-monospace,monospace;word-break:break-all}
+.card button{position:absolute;top:.4rem;right:.4rem;background:#f55;color:#fff;border:none;border-radius:4px;cursor:pointer}
+#toolbar{display:flex;gap:.8rem;margin-bottom:1rem}
+#toolbar input{flex:1;padding:.5rem}
+button{padding:.5rem .8rem}
+dialog{border:none;border-radius:8px;padding:1.2rem;max-width:20rem}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+</style>
+<h1>Secretos Vault</h1>
+
+<section id="unlock">
+<label>Pass-phrase <input id="pw" type="password"></label>
+<button id="unl">Unlock</button>
+<p id="err" style="color:#c00"></p>
+</section>
+
+<section id="app" style="display:none">
+  <div id="toolbar">
+    <input id="filter" placeholder="filter…">
+    <button id="add">＋ Add</button>
+    <button id="save">💾 Save</button>
+  </div>
+  <div id="grid"></div>
+</section>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <h3 id="dlg-title">Add secret</h3>
+    <label>Key <input id="k"></label><br>
+    <label>Value <input id="v"></label><br><br>
+    <button value="cancel">Cancel</button>
+    <button id="ok" value="ok">OK</button>
+  </form>
+</dialog>
+
+<script>
+/* crypto + GitHub helpers identical to previous snippet (omit for brevity)... */
+/* ... assume same enc/dec, gh, unlock logic, entries array, save() etc.       */
+
+const grid=$('grid'),dlg=$('dlg'),k=$('k'),v=$('v')
+$('filter').oninput=()=>render($('filter').value)
+function render(q=''){grid.innerHTML='';entries.filter(o=>o.k.includes(q)||o.v.includes(q)).forEach((o,i)=>{const c=document.createElement('div');c.className='card';c.innerHTML=`<button data-i=${i}>✖</button><h2>${o.k}</h2><p>${o.v}</p>`;grid.append(c)})}
+grid.onclick=e=>{if(e.target.tagName!=='BUTTON')return;entries.splice(+e.target.dataset.i,1);render()}
+$('add').onclick=()=>{k.value='';v.value='';dlg.showModal();dlg.returnValue='';dlg.addEventListener('close',()=>{if(dlg.returnValue==='ok'){entries.push({k:k.value,v:v.value});render()}})}
+/* ... hook up save(), unlock() exactly as in Inline version ... */
+</script>

@@ -1,62 +1,52 @@
-# Secretos — Zero‑Backend Password Vault
+# Los Secretos — zero‑backend password vault
 
-**Secretos** lets you keep an encrypted list of secrets on GitHub without running any server. All crypto happens in your browser. The only thing you must protect is your **pass‑phrase**.
-
----
-
-## What you need
-
-1. A **public repo** called `secretos` (this one).
-   It hosts the web page and **`config.enc`** — an encrypted copy of your Personal‑Access‑Token (PAT).
-2. A **private repo** called `vault`.
-   It stores one file, **`vault.json`**, containing the encrypted key/value list.
-3. One **fine‑grained PAT** with **Contents Read & Write** on both repos.
+A single‑page app + GitHub API.
+Secrets are encrypted in your browser and stored in one file (`vault.json`) inside a **private** repo.
 
 ---
 
-## First‑time setup (≈ 3 min)
+## Repos & files
 
-1. **Fork** this repo → your account. Enable **Pages** (`Settings → Pages → main / root`).
-   Your site appears at `https://<you>.github.io/secretos/`.
-2. **Create** a *private* repo named **`vault`** (leave it empty).
-3. **Generate** a fine‑grained PAT → grant **Contents RW** on `secretos` and `vault`.
-4. Open `https://<you>.github.io/secretos/make-config.html` in your browser.
-   Paste the PAT and choose a long pass‑phrase → click **Generate & Commit**.
-   The page encrypts the PAT and commits **`config.enc`** to `secretos`.
-5. Visit `https://<you>.github.io/secretos/`, enter the pass‑phrase, and start adding secrets.
+| Repo        | Visibility | Purpose |
+|-------------|------------|---------|
+| `secretos`  | public     | Hosts `index.html` (this page) and **`config.enc`** (encrypted PAT) |
+| `vault`     | private    | Holds **`vault.json`** (encrypted secrets) |
 
 ---
 
-## Everyday use
+## Quick setup (3 min)
 
-* **Search** by typing in the filter box.
-* **＋ Add** to create a new secret; click any row to edit.
-* **Save** writes a fresh encrypted blob to `vault.json` through the GitHub API.
-
----
-
-## Trust model (why this is safe)
-
-* `config.enc` & `vault.json` are **AES‑256‑GCM** cipher‑text. Without the pass‑phrase they reveal nothing.
-* Your pass‑phrase never leaves the browser. PAT is stored only inside `config.enc`.
-* The PAT can write **only** to `secretos` and `vault`; it has no access elsewhere.
-* Every commit keeps history—delete or revert via GitHub UI if needed.
-
----
-
-## Rotate your token / pass‑phrase
-
-1. Generate a new fine‑grained PAT.
-2. Re‑run **make-config.html** with the new token (optionally a new pass‑phrase).
-3. Click **Generate & Commit**—`config.enc` is replaced.
-4. Revoke the old token.
+1. **Fork** this repo → your account.  
+2. **Create** a private repo named **`vault`** (empty).  
+3. **Generate** a fine‑grained PAT  
+   * Repository access → `secretos`, `vault`  
+   * Permissions → **Contents → Read & Write**  
+4. Visit your fork’s Pages URL  
+   `https://<username>.github.io/secretos/`  
+   The Setup form appears.  
+5. Paste the PAT, choose a long pass‑phrase, click **Generate & Commit**.  
+   *The page encrypts the token → commits `config.enc` → reloads.*  
+6. Unlock with the pass‑phrase, add secrets, **Save**.
 
 ---
 
-## Locked out?
+## Features
 
-*Lose the pass‑phrase → data is unrecoverable.* Keep an offline backup of `vault.json` if the secrets are critical.
+* **Auto‑unlock** if “remember me” was checked.  
+* Tap a card to reveal / hide its value.  
+* **📋 Copy** icon copies the plaintext value to clipboard.  
+* **Random generator** when adding a secret.  
+* One‑click Save (`Ctrl/⌘‑S`).
 
 ---
 
-MIT License • Contributions welcome.
+## Rotate token / change pass‑phrase
+
+Click “Run setup / rotate token,” paste a new PAT and/or new pass‑phrase, **Generate & Commit**.  
+The vault stays intact; press **Save** once to re‑encrypt with the new pass‑phrase.
+
+---
+
+ChatGPT wrote this whole thing. Sorry.
+
+MIT License – enjoy.
