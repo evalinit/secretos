@@ -3,55 +3,64 @@
 <meta charset="utf-8">
 <title>Los Secretos</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+
 <style>
-:root{--bg:#141414;--fg:#f3f3f3;--accent:#009dff;--card:#242424;--gap:.9rem;--br:8px;--mono:'ui-monospace',monospace}
+:root{--bg:#141414;--fg:#f3f3f3;--accent:#009dff;--card:#242424;--gap:.9rem;--br:8px}
 *{box-sizing:border-box;font-family:system-ui,Arial}
 body{background:var(--bg);color:var(--fg);margin:1rem;max-width:42rem}
-h1{margin:0 0 .5rem;font-size:1.7rem;letter-spacing:.02em}
+#top{display:flex;align-items:center;gap:.6rem;margin-bottom:1rem}
+#top h1{margin:0;font-size:1.7rem;flex:1}
+a.link{font-size:.9rem;color:var(--accent);text-decoration:none;cursor:pointer}
+a.link:hover{text-decoration:underline}
+label.chk{display:flex;align-items:center;gap:.35rem;font-size:.9rem}
+input[type=checkbox]{width:auto;height:1.05rem;cursor:pointer}
 input,button{width:100%;padding:.55rem;font-size:1rem;border-radius:var(--br);border:1px solid #444;background:#101010;color:var(--fg)}
 button{background:var(--accent);cursor:pointer;border:none}
 button[disabled]{opacity:.5;cursor:default}
-label{display:block;margin-top:var(--gap)}
-label.chk{display:flex;align-items:center;gap:.55rem;margin-bottom:var(--gap)}
-input[type=checkbox]{width:auto;height:1.1rem;cursor:pointer}
+label.stack{display:block;margin-top:var(--gap)}
 #toolbar{display:flex;gap:.8rem;margin:calc(var(--gap)*1.5) 0 var(--gap)}
-#toolbar input{flex:1;font-size:1.05rem}
+#toolbar input{flex:1}
 #toolbar button{flex:0 0 3rem}
 .card{background:var(--card);border:1px solid #333;border-radius:var(--br);padding:1rem;margin-bottom:var(--gap);position:relative}
 .card h2{margin:0 0 .45rem;font-size:1rem}
-.card p{margin:0;font-family:var(--mono);word-break:break-all;font-size:.95rem}
+.card p{margin:0;font-family:monospace;word-break:break-all}
 .btn{position:absolute;width:1.7rem;height:1.7rem;border:none;border-radius:50%;font-weight:bold;line-height:1.7rem;padding:0;color:#fff;cursor:pointer}
 .del{top:.4rem;right:.4rem;background:#e33}
 .copy{bottom:.4rem;right:.4rem;background:#666;font-size:.8rem}
 .hidden{display:none}
 .small{font-size:.9rem;opacity:.8}
-a.link{color:var(--accent);text-decoration:none;font-size:.9rem;cursor:pointer}
 .err{color:#e55;font-size:.95rem;margin-top:.6rem}
 #toast{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#444;padding:.5rem 1rem;border-radius:var(--br);opacity:0;transition:opacity .3s}
-#unlock button,#setup button{margin-top:var(--gap)}
+label.stack:last-of-type{margin-bottom:var(--gap);}
 </style>
 
-<h1>Los Secretos</h1>
-<label class="chk"><input id="remember" type="checkbox"> remember me</label>
+<!-- top bar -->
+<div id="top">
+  <h1>Los Secretos</h1>
+  <a id="logout"    class="link hidden">Log out</a>
+  <span>|</span>
+  <a id="uninstall" class="link">Uninstall</a>
+  <span>|</span>
+  <label class="chk">Remember Passphrase<input id="remember" type="checkbox"></label>
+</div>
 
+<!-- setup -->
 <section id="setup" class="hidden">
-  <p class="small"><strong>Create a fine‑grained PAT:</strong><br>
-  Settings→Developer settings→Personal access tokens→Fine‑grained<br>
-  • Repos: <code>secretos</code> (public) &amp; <code>vault</code> (private)<br>
-  • Permissions: <code>Contents RW</code></p>
-  <label>PAT <input id="pat" type="password" autocomplete="off"></label>
-  <label>Pass‑phrase <input id="spw" type="password"></label>
-  <button id="gen">Generate & Commit config.json</button>
+  <p class="small">Create a PAT with <code>Contents RW</code> on your private <code>vault</code> repo and paste it:</p>
+  <label class="stack">PAT<input id="pat" type="password"></label>
+  <label class="stack">Passphrase<input id="spw" type="password"></label>
+  <button id="install">Install</button>
   <p id="smsg" class="err hidden"></p>
 </section>
 
+<!-- unlock -->
 <section id="unlock" class="hidden">
-  <label>Pass‑phrase <input id="pw" type="password"></label>
+  <label class="stack">Passphrase<input id="pw" type="password"></label>
   <button id="go">Unlock</button>
   <p id="umsg" class="err hidden"></p>
-  <p><a id="showSetup" class="link">Run setup / rotate token</a></p>
 </section>
 
+<!-- app -->
 <section id="app" class="hidden">
   <div id="toolbar">
     <input id="filter" placeholder="filter…">
@@ -63,77 +72,101 @@ a.link{color:var(--accent);text-decoration:none;font-size:.9rem;cursor:pointer}
 <div id="toast">✓ Saved</div>
 
 <script>
-if(!crypto.subtle){alert('Needs https:// or localhost');throw new Error('Insecure context')}
+document.addEventListener('DOMContentLoaded',init);
 
-const $=id=>document.getElementById(id),API='application/vnd.github+json',
-b64=ab=>btoa(String.fromCharCode(...new Uint8Array(ab))),ab=s=>Uint8Array.from(atob(s),c=>c.charCodeAt()).buffer
+function init(){
+const $=i=>document.getElementById(i),
+CFG='secretos-config',PASS='secretos-pass',
+API='application/vnd.github+json',
+b64=a=>btoa(String.fromCharCode(...new Uint8Array(a))),
+ab =s=>Uint8Array.from(atob(s),c=>c.charCodeAt()).buffer;
 
-function getUser(){if(location.hostname.endsWith('.github.io'))return location.hostname.split('.')[0];const c=localStorage.getItem('secretos-user');if(c)return c;const u=prompt('GitHub username hosting secretos repo?');if(u)localStorage.setItem('secretos-user',u);return u||''}
-const GH_USER=getUser(),RAW=`https://raw.githubusercontent.com/${GH_USER}/secretos/main/config.json`
+let pass,token,user,sha='',entries=[];
 
-let pass,token,user,sha='',entries=[]
-const toast=msg=>{const t=$('toast');t.textContent=msg;t.style.opacity=1;setTimeout(()=>t.style.opacity=0,1200)}
+/* crypto */
+async function kdf(p,s){const b=await crypto.subtle.importKey('raw',new TextEncoder().encode(p),'PBKDF2',0,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt:s,iterations:250e3,hash:'SHA-256'},b,{name:'AES-GCM',length:256},0,['encrypt','decrypt'])}
+const enc=async o=>{const iv=crypto.getRandomValues(new Uint8Array(12)),salt=crypto.getRandomValues(new Uint8Array(16)),ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},await kdf(pass,salt),new TextEncoder().encode(JSON.stringify(o)));return{iv:b64(iv),salt:b64(salt),ct:b64(ct)}}
+const dec=async o=>JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:ab(o.iv)},await kdf(pass,ab(o.salt)),ab(o.ct))))
 
-async function key(p,s){const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(p),'PBKDF2',0,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt:s,iterations:250e3,hash:'SHA-256'},base,{name:'AES-GCM',length:256},0,['encrypt','decrypt'])}
-const encrypt=async o=>{const iv=crypto.getRandomValues(new Uint8Array(12)),salt=crypto.getRandomValues(new Uint8Array(16)),ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},await key(pass,salt),new TextEncoder().encode(JSON.stringify(o)));return{iv:b64(iv),salt:b64(salt),ct:b64(ct)}}
-const decrypt=async b=>JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:ab(b.iv)},await key(pass,ab(b.salt)),ab(b.ct))))
-const gh=(u,opt={})=>fetch(u,{...opt,headers:{Authorization:`Bearer ${token}`,Accept:API,'X-GitHub-Api-Version':'2022-11-28'}})
+const toast=m=>{const t=$('toast');t.textContent=m;t.style.opacity=1;setTimeout(()=>t.style.opacity=0,1200)}
+const cfg =()=>JSON.parse(localStorage.getItem(CFG)||'null');
+const gh =(u,o={})=>fetch(u,{...o,headers:{Authorization:`Bearer ${token}`,Accept:API,'X-GitHub-Api-Version':'2022-11-28'}})
 
-/* ---------- fast config fetch ---------- */
-async function getConfigJSON(){
-  const t=sessionStorage.getItem('secretos-token')
-  if(t){try{const api=`https://api.github.com/repos/${GH_USER}/secretos/contents/config.json?ref=main`,r=await fetch(api,{headers:{Authorization:`Bearer ${t}`,Accept:API}});if(r.ok)return JSON.parse(atob((await r.json()).content))}catch{}}
-  return fetch(RAW).then(r=>r.json())
-}
-
-/* ---------- UI ---------- */
-const grid=$('grid')
-function render(q=''){grid.innerHTML='';entries.filter(e=>e.k.toLowerCase().includes(q)||e.v.toLowerCase().includes(q)).forEach((e,i)=>grid.insertAdjacentHTML('beforeend',`<div class="card"><button class="btn del" data-i=${i}>×</button><h2>${e.k}</h2><p class=sec data-i=${i}>${'•'.repeat(e.v.length)}</p><button class="btn copy" data-i=${i}>📋</button></div>`))}
+/* render grid */
+const grid=$('grid');
+function render(q=''){grid.innerHTML='';entries.filter(e=>e.k.toLowerCase().includes(q)||e.v.toLowerCase().includes(q)).forEach((e,i)=>grid.insertAdjacentHTML('beforeend',`<div class="card"><button class="btn del" data-i=${i}>×</button><h2>${e.k}</h2><p class="sec" data-i=${i}>${'•'.repeat(e.v.length)}</p><button class="btn copy" data-i=${i}>📋</button></div>`))}
 $('filter').oninput=e=>render(e.target.value.toLowerCase())
 grid.onclick=e=>{
-  const i=e.target.dataset.i
+  const i=e.target.dataset.i;
   if(e.target.classList.contains('del')){if(!confirm(`Delete “${entries[i].k}” ?`))return;entries.splice(i,1);render($('filter').value);save();return}
   if(e.target.classList.contains('copy')){navigator.clipboard.writeText(entries[i].v);e.target.textContent='✔';setTimeout(()=>e.target.textContent='📋',900)}
   if(e.target.classList.contains('sec')){const p=e.target;p.textContent=p.textContent.includes('•')?entries[i].v:'•'.repeat(entries[i].v.length)}
 }
-$('add').onclick=()=>{const k=prompt('Key');if(!k)return;const rand=b64(crypto.getRandomValues(new Uint8Array(18))).slice(0,24),v=prompt('Value (blank=random)',rand)||rand;entries.push({k,v});render($('filter').value);save()}
+const def = strongPwd();
+$('add').onclick=()=>{const k=prompt('Key');if(!k)return;const v=prompt('Value (blank = random)',def)||def;entries.push({k,v});render($('filter').value);save()}
 
-async function save(){try{const blob=await encrypt(entries),body={message:'update',content:b64(new TextEncoder().encode(JSON.stringify(blob))),branch:'main',...(sha&&{sha})},r=await gh(`https://api.github.com/repos/${user}/vault/contents/vault.json`,{method:'PUT',body:JSON.stringify(body)});sha=(await r.json()).content.sha;toast('✓ Saved')}catch(e){alert('Save failed');console.error(e)}}
+/* save */
+async function save(){try{const blob=await enc(entries),body={message:'update',content:b64(new TextEncoder().encode(JSON.stringify(blob))),branch:'main',...(sha&&{sha})},r=await gh(`https://api.github.com/repos/${user}/vault/contents/vault.json`,{method:'PUT',body:JSON.stringify(body)});sha=(await r.json()).content.sha;toast('✓ Saved');}catch(e){alert('Save failed');}}
 
-/* ---------- Generator ---------- */
-$('gen').onclick=async()=>{ $('smsg').classList.add('hidden'); token=$('pat').value.trim(); pass=$('spw').value.trim(); if(!token||!pass){err('smsg','Both fields required');return}
-  try{user=await fetch('https://api.github.com/user',{headers:{Authorization:`Bearer ${token}`,Accept:API}}).then(r=>r.json()).then(j=>j.login)
-    const blob=await encrypt({token}),api=`https://api.github.com/repos/${user}/secretos/contents/config.json`,head=await gh(api);let shaHead='';if(head.ok)shaHead=(await head.json()).sha
-    await gh(api,{method:'PUT',body:JSON.stringify({message:'add config.json',content:b64(new TextEncoder().encode(JSON.stringify(blob))),...(shaHead&&{sha:shaHead})})})
-    sessionStorage.setItem('secretos-token',token)    /* cache for reload */
-    alert('config.json committed – reload');location.reload()
-  }catch(e){err('smsg','GitHub API error');console.error(e)}}
+/* write pass helper */
+function writePass(){sessionStorage.setItem(PASS,pass); $('remember').checked?localStorage.setItem(PASS,pass):localStorage.removeItem(PASS)}
 
-/* ---------- Navigation ---------- */
-$('showSetup').onclick=()=>{$('app').classList.add('hidden');$('unlock').classList.add('hidden');$('setup').classList.remove('hidden')}
-$('go').onclick=()=>unlock(false)
-const storedPass=localStorage.getItem('secretos-pass');if(storedPass)unlock(true)
+/* install PAT */
+$('install').onclick=async()=>{
+  $('smsg').classList.add('hidden');
+  token=$('pat').value.trim();pass=$('spw').value.trim();
+  if(!token||!pass){err('smsg','Both fields');return}
+  localStorage.setItem(CFG,JSON.stringify(await enc({token})));
+  writePass(); unlock(true);
+};
 
-async function unlock(auto){
-  pass=auto?storedPass:$('pw').value.trim(); if(!pass)return
-  try{token=(await decrypt(await getConfigJSON()))?.token}catch{ if(!auto)err('umsg','Wrong pass‑phrase');return}
-  sessionStorage.setItem('secretos-token',token)      /* cache for next load */
-  $('remember').checked?localStorage.setItem('secretos-pass',pass):localStorage.removeItem('secretos-pass')
-  user=await gh('https://api.github.com/user').then(r=>r.json()).then(j=>j.login)
-  const r=await gh(`https://api.github.com/repos/${user}/vault/contents/vault.json?ref=main`)
-  if(r.ok){
-    const j=await r.json(),blob=JSON.parse(atob(j.content));sha=j.sha
-    try{entries=await decrypt(blob)}catch{
-      const old=prompt('Vault uses older pass‑phrase.\nEnter OLD pass‑phrase:');if(!old)return
-      try{pass=old;entries=await decrypt(blob);pass=auto?storedPass:$('pw').value.trim();await save();toast('Vault migrated')}catch{err('umsg','Migration failed');return}
-    }
-  }else entries=[]
-  $('setup').classList.add('hidden');$('unlock').classList.add('hidden');$('app').classList.remove('hidden');render()
+/* --- strong random password --- */
+function strongPwd(len=24){
+  const lowers="abcdefghijklmnopqrstuvwxyz",
+        uppers="ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        nums  ="0123456789",
+        syms  ="!@#$%^&*()-_=+[]{}";
+  const all = lowers+uppers+nums+syms;
+  const bytes=new Uint8Array(len);
+  crypto.getRandomValues(bytes);
+  let pwd=[ lowers[bytes[0]%26],
+            uppers[bytes[1]%26],
+            nums  [bytes[2]%10],
+            syms  [bytes[3]%syms.length] ];
+  for(let i=4;i<len;i++) pwd.push(all[bytes[i]%all.length]);
+  return pwd.sort(()=>Math.random()-0.5).join('');
 }
 
-/* ---------- misc ---------- */
-function err(id,msg){const e=$(id);e.textContent=msg;e.classList.remove('hidden')}
-$('remember').addEventListener('change',()=>{if(!pass)return;$('remember').checked?localStorage.setItem('secretos-pass',pass):localStorage.removeItem('secretos-pass')})
-const stored=localStorage.getItem('secretos-pass');if(stored){$('remember').checked=true}
-(async()=>{const ok=await fetch(RAW).then(r=>r.ok).catch(()=>false);ok?$('unlock').classList.remove('hidden'):$('setup').classList.remove('hidden');if(ok&&stored)unlock(true)})();
+/* unlock */
+$('go').onclick=()=>unlock(false);
+async function unlock(installed){
+  /* NEW: pull pass from storage on auto‑unlock */
+  if(installed){
+    pass = sessionStorage.getItem(PASS) || localStorage.getItem(PASS);
+  }else{
+    pass = sessionStorage.getItem(PASS) || localStorage.getItem(PASS) || $('pw').value.trim();
+  }
+  if(!pass)return;
+  if(!installed){pass=sessionStorage.getItem(PASS)||localStorage.getItem(PASS)||$('pw').value.trim();}
+  if(!pass)return;
+  const c=cfg();if(!c){$('setup').classList.remove('hidden');return}
+  try{token=(await dec(c)).token}catch{err('umsg','Bad pass');return}
+  writePass();$('pw').value='';
+  user=await fetch('https://api.github.com/user',{headers:{Authorization:`Bearer ${token}`,Accept:API}}).then(r=>r.json()).then(j=>j.login)
+  const r=await gh(`https://api.github.com/repos/${user}/vault/contents/vault.json?ref=main`);
+  if(r.ok){const j=await r.json(),blob=JSON.parse(atob(j.content));sha=j.sha;try{entries=await dec(blob);}catch{const o=prompt('Old pass to migrate:');if(!o)return;try{pass=o;entries=await dec(blob);pass=sessionStorage.getItem(PASS)||localStorage.getItem(PASS);await save();toast('Vault migrated');}catch{err('umsg','Migration fail');return}}}
+  $('setup').classList.add('hidden');$('unlock').classList.add('hidden');$('app').classList.remove('hidden');$('logout').classList.remove('hidden');render();
+}
+
+/* logout/uninstall */
+$('logout').onclick=()=>{sessionStorage.removeItem(PASS);localStorage.removeItem(PASS);location.reload()}
+$('uninstall').onclick=()=>{sessionStorage.clear();localStorage.removeItem(CFG);localStorage.removeItem(PASS);location.reload()}
+
+/* remember live */
+$('remember').onchange=()=>{if(!pass)return;$('remember').checked?localStorage.setItem(PASS,pass):localStorage.removeItem(PASS)}
+
+/* initial screen */
+if(cfg()){ $('unlock').classList.remove('hidden'); const s=sessionStorage.getItem(PASS),l=localStorage.getItem(PASS); if(s||l){ $('remember').checked=!!l; unlock(true);} } else $('setup').classList.remove('hidden');
+function err(id,m){const e=$(id);e.textContent=m;e.classList.remove('hidden')}
+}
 </script>
